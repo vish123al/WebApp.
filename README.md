@@ -19,3 +19,4 @@ A PHP e-commerce web application
 
 
 Currently only Cash on Delivery, has been implemented
+# WebApp.
