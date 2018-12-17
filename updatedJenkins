@@ -1,0 +1,247 @@
+//def gitCommit() {
+  //  sh "git rev-parse HEAD > GIT_COMMIT"
+    //def gitCommit = readFile('GIT_COMMIT').trim()
+    //sh "rm -f GIT_COMMIT" this is for reviewboard
+    //return gitCommit,,
+//}
+
+import java.text.SimpleDateFormat
+jobName = "WebApp"
+def dateFormat = new SimpleDateFormat("yyyyMMddHHmm")
+def date = new Date()
+def timestamp = dateFormat.format(date).toString()
+
+def status= true
+def TicketNumber
+def output
+def comment
+def result
+def err
+def buildstatus
+def committerEmail
+node {
+
+    // Checkout source code from Gitv.....
+    if (status){
+    try {
+    stage 'Checkout and Create ServiceNow Ticket'
+        checkout scm
+        committerEmail = sh (script: 'git --no-pager show -s --format=\'%ae\'',returnStdout: true).trim()
+        sh "pip install requests"
+        output=sh (returnStdout: true, script: "python Integration.py --action Create -b ${env.BUILD_TAG} -e ${committerEmail}" )
+        TicketNumber="${output}"
+        comment="Checkout source code from Git stage is completed"
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${comment}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+        
+    if (status){
+    try {
+    stage 'Unit and Integration Test'
+        buildstatus='Running'
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        //checkstyle canComputeNew: false, defaultEncoding: '', healthy: '', pattern: '**/checkstyle-result.xml', unHealthy: ''
+        //dry canComputeNew: false, defaultEncoding: '', healthy: '', pattern: '**/cpd.xml', unHealthy: ''
+        //findbugs canComputeNew: false, defaultEncoding: '', excludePattern: '', healthy: '', includePattern: '', pattern: '**/findbugs.xml', unHealthy: ''
+        //pmd canComputeNew: false, defaultEncoding: '', healthy: '', pattern: '**/pmd.xml', unHealthy: ''
+        //warnings canComputeNew: false, canResolveRelativePaths: false, categoriesPattern: '', consoleParsers: [[parserName: 'PHP Runtime']], defaultEncoding: '', excludePattern: '', healthy: '', includePattern: '', messagesPattern: '', parserConfigurations: [[parserName: 'PHP Runtime', pattern: '.php']], unHealthy: '' 
+        //sh 'curl -X POST -H "Content-Type: application/json" http://172.29.133.15:8080/v2/apps -d@msql.json'
+        //sh 'make test'
+        comment="(TEST) unit/integration testing is completed."
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${comment}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+      }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+    
+    if (status){
+    try {
+    stage 'Build and Scan'
+        
+        comment=sh (returnStatus: true, script: "docker build --no-cache -t base01.artifactory-lb.hds.local/php:${jobName}${timestamp} . " )
+        if (comment==0)
+        {
+        comment='Building Docker Image is successful.'
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${comment}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        }
+        else{
+        error("Building Docker Image is failed..")
+        }
+        comment=sh (returnStdout: true, script: "docker login -u admin -p 'Hitachi1!' base01.artifactory-lb.hds.local" )
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        
+        comment=sh (returnStdout: true, script: "docker login -u vdenge -p 'v!sh@l123'" )
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+    
+        
+        comment=sh (returnStdout: true, script: "docker pull aquasec/scanner-cli:3.0" )
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        
+        comment=sh (returnStdout: true, script: "docker push base01.artifactory-lb.hds.local/php:${jobName}${timestamp}" )
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        
+        
+        comment=sh (returnStdout: true, script: "docker pull base01.artifactory-lb.hds.local/php:${jobName}${timestamp}" )
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        
+        aqua hideBase: false, hostedImage: '', localImage: "base01.artifactory-lb.hds.local/php:${jobName}${timestamp}", locationType: 'local', notCompliesCmd: '', onDisallowed: 'ignore', register: false, registry: 'Docker Hub', showNegligible: false
+        comment="(BUILD) building image stage is completed"
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+    }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+    
+    
+    
+    if (status){
+    try {
+    stage 'Publish '
+        
+        comment=sh (returnStdout: true, script: "docker push base01.artifactory-lb.hds.local/php:${jobName}${timestamp}" )
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        
+        comment="(PUBLISH) Pushing the image stage is completed"
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '''${comment}''' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+    }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+    
+    if (status){
+    try {
+    stage 'Wait for Approval'
+        buildstatus= "Approval Required"
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -s '${buildstatus}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        result = sh(returnStdout:true , script: """python Integration.py --action Approval -t ${TicketNumber} """).trim()
+    }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+    if (result=="rejected"){
+    try {
+    stage 'Checking Approval'
+        buildstatus='Failed'
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        status = false
+        currentBuild.result = 'FAILURE'
+    }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+    
+    if (status && result=="approved"){
+    try {
+    
+    stage 'Deploy'
+    
+        //sh 'curl -X POST -H "Content-Type: application/json" http://mesomaster02.production.hec.local:8080/v2/groups -d@marathon2.json'
+        // sh 'curl -X POST -H "Content-Type: application/json" http://10.0.1.85:8080/v2/apps -d@marathon.json'
+        //sh 'curl -X POST -H "Content-Type: application/json" http://10.0.1.85:8080/v2/apps -d@msql.json'
+        marathon(
+            url: 'http://172.29.133.15:8080',
+            forceUpdate: true,
+            filename: 'marathon.json',
+            appId: 'blog',
+            docker: "base01.artifactory-lb.hds.local/php:${jobName}${timestamp}".toString()
+            )
+        
+        comment="(DEPLOY) Deploying the container stage is completed"
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${comment}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+    }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+     
+    if (status){
+    try {
+    stage 'Collect Test Reports'
+        
+        sh 'touch reports/*.xml'
+        junit '**/reports/*.xml'
+        // step([$class: 'JUnitResultArchiver', testResults: '**/reports/*.xml'])
+        comment="Collect test reports stage is completed"
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${comment}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+    }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+    
+    if (status){
+    try {
+    stage 'Clean Up'
+        
+        comment="Clean up stage is completed"
+        buildstatus='Success'
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${comment}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+        buildstatus='Success'
+        result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+                 
+   }
+    catch (caughtError) { 
+            err = caughtError
+            currentBuild.result = 'FAILURE'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -c '${err}' -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            buildstatus='Failed'
+            result = sh(returnStdout:true , script: """python Integration.py --action Update -s ${buildstatus} -b ${env.BUILD_TAG} -t ${TicketNumber} """).trim()
+            status = false
+        }
+    }
+
+}
